@@ -24,7 +24,7 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "acl/core/memory.h"
+#include "acl/core/iallocator.h"
 #include "acl/core/error.h"
 #include "acl/core/hash.h"
 #include "acl/compression/animation_clip.h"
@@ -46,15 +46,17 @@ namespace acl
 		uint16_t num_bones;
 
 		uint32_t clip_sample_offset;
-
-		uint32_t animated_pose_bit_size;
-		uint32_t animated_data_size;
-		uint32_t range_data_size;
 		uint32_t segment_index;
 
 		bool are_rotations_normalized;
 		bool are_translations_normalized;
 		bool are_scales_normalized;
+
+		// Stat tracking
+		uint32_t animated_pose_bit_size;
+		uint32_t animated_data_size;
+		uint32_t range_data_size;
+		uint32_t total_header_size;
 
 		//////////////////////////////////////////////////////////////////////////
 
@@ -71,4 +73,10 @@ namespace acl
 
 		constexpr BoneIterator bone_iterator() const { return BoneIterator(bone_streams, num_bones); }
 	};
+
+	inline void destroy_segment_context(IAllocator& allocator, SegmentContext& segment)
+	{
+		deallocate_type_array(allocator, segment.bone_streams, segment.num_bones);
+		deallocate_type_array(allocator, segment.ranges, segment.num_bones);
+	}
 }

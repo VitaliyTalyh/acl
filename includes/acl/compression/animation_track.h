@@ -24,7 +24,7 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "acl/core/memory.h"
+#include "acl/core/iallocator.h"
 #include "acl/core/error.h"
 #include "acl/core/utils.h"
 #include "acl/core/track_types.h"
@@ -59,15 +59,18 @@ namespace acl
 			, m_type(AnimationTrackType8::Rotation)
 		{}
 
-		AnimationTrack(AnimationTrack&& track)
-			: m_allocator(track.m_allocator)
-			, m_sample_data(track.m_sample_data)
-			, m_num_samples(track.m_num_samples)
-			, m_sample_rate(track.m_sample_rate)
-			, m_type(track.m_type)
-		{}
+		AnimationTrack(AnimationTrack&& other)
+			: m_allocator(other.m_allocator)
+			, m_sample_data(other.m_sample_data)
+			, m_num_samples(other.m_num_samples)
+			, m_sample_rate(other.m_sample_rate)
+			, m_type(other.m_type)
+		{
+			// Safe because our derived classes do not add any data and aren't virtual
+			new(&other) AnimationTrack();
+		}
 
-		AnimationTrack(Allocator& allocator, uint32_t num_samples, uint32_t sample_rate, AnimationTrackType8 type)
+		AnimationTrack(IAllocator& allocator, uint32_t num_samples, uint32_t sample_rate, AnimationTrackType8 type)
 			: m_allocator(&allocator)
 			, m_sample_data(allocate_type_array_aligned<double>(allocator, num_samples * get_animation_track_sample_size(type), alignof(Vector4_64)))
 			, m_num_samples(num_samples)
@@ -107,7 +110,7 @@ namespace acl
 			}
 		}
 
-		Allocator*						m_allocator;
+		IAllocator*						m_allocator;
 		double*							m_sample_data;
 
 		uint32_t						m_num_samples;
@@ -125,15 +128,15 @@ namespace acl
 			: AnimationTrack()
 		{}
 
-		AnimationRotationTrack(Allocator& allocator, uint32_t num_samples, uint32_t sample_rate)
+		AnimationRotationTrack(IAllocator& allocator, uint32_t num_samples, uint32_t sample_rate)
 			: AnimationTrack(allocator, num_samples, sample_rate, AnimationTrackType8::Rotation)
 		{
 			Quat_64* samples = safe_ptr_cast<Quat_64>(&m_sample_data[0]);
 			std::fill(samples, samples + num_samples, quat_identity_64());
 		}
 
-		AnimationRotationTrack(AnimationRotationTrack&& track)
-			: AnimationTrack(std::forward<AnimationTrack>(track))
+		AnimationRotationTrack(AnimationRotationTrack&& other)
+			: AnimationTrack(std::forward<AnimationTrack>(other))
 		{}
 
 		AnimationRotationTrack& operator=(AnimationRotationTrack&& track)
@@ -195,14 +198,14 @@ namespace acl
 			: AnimationTrack()
 		{}
 
-		AnimationTranslationTrack(Allocator& allocator, uint32_t num_samples, uint32_t sample_rate)
+		AnimationTranslationTrack(IAllocator& allocator, uint32_t num_samples, uint32_t sample_rate)
 			: AnimationTrack(allocator, num_samples, sample_rate, AnimationTrackType8::Translation)
 		{
 			std::fill(m_sample_data, m_sample_data + (num_samples * 3), 0.0);
 		}
 
-		AnimationTranslationTrack(AnimationTranslationTrack&& track)
-			: AnimationTrack(std::forward<AnimationTrack>(track))
+		AnimationTranslationTrack(AnimationTranslationTrack&& other)
+			: AnimationTrack(std::forward<AnimationTrack>(other))
 		{}
 
 		AnimationTranslationTrack& operator=(AnimationTranslationTrack&& track)
@@ -262,14 +265,14 @@ namespace acl
 			: AnimationTrack()
 		{}
 
-		AnimationScaleTrack(Allocator& allocator, uint32_t num_samples, uint32_t sample_rate)
+		AnimationScaleTrack(IAllocator& allocator, uint32_t num_samples, uint32_t sample_rate)
 			: AnimationTrack(allocator, num_samples, sample_rate, AnimationTrackType8::Scale)
 		{
 			std::fill(m_sample_data, m_sample_data + (num_samples * 3), 0.0);
 		}
 
-		AnimationScaleTrack(AnimationScaleTrack&& track)
-			: AnimationTrack(std::forward<AnimationTrack>(track))
+		AnimationScaleTrack(AnimationScaleTrack&& other)
+			: AnimationTrack(std::forward<AnimationTrack>(other))
 		{}
 
 		AnimationScaleTrack& operator=(AnimationScaleTrack&& track)

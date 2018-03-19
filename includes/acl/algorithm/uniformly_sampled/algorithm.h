@@ -28,6 +28,7 @@
 #include "acl/algorithm/uniformly_sampled/decoder.h"
 #include "acl/core/ialgorithm.h"
 #include "acl/core/range_reduction_types.h"
+#include "acl/compression/skeleton_error_metric.h"
 #include "acl/decompression/default_output_writer.h"
 
 namespace acl
@@ -44,24 +45,25 @@ namespace acl
 			m_compression_settings.range_reduction = clip_range_reduction;
 			m_compression_settings.segmenting.enabled = use_segmenting;
 			m_compression_settings.segmenting.range_reduction = segment_range_reduction;
+			m_compression_settings.error_metric = &m_error_metric;
 		}
 
-		UniformlySampledAlgorithm(CompressionSettings settings)
+		UniformlySampledAlgorithm(const CompressionSettings& settings)
 			: m_compression_settings(settings)
 		{}
 
-		virtual CompressedClip* compress_clip(Allocator& allocator, const AnimationClip& clip, const RigidSkeleton& skeleton, OutputStats& stats) override
+		virtual CompressedClip* compress_clip(IAllocator& allocator, const AnimationClip& clip, const RigidSkeleton& skeleton, OutputStats& stats) override
 		{
 			return uniformly_sampled::compress_clip(allocator, clip, skeleton, m_compression_settings, stats);
 		}
 
-		virtual void* allocate_decompression_context(Allocator& allocator, const CompressedClip& clip) override
+		virtual void* allocate_decompression_context(IAllocator& allocator, const CompressedClip& clip) override
 		{
 			uniformly_sampled::DecompressionSettings settings;
 			return uniformly_sampled::allocate_decompression_context(allocator, settings, clip);
 		}
 
-		virtual void deallocate_decompression_context(Allocator& allocator, void* context) override
+		virtual void deallocate_decompression_context(IAllocator& allocator, void* context) override
 		{
 			uniformly_sampled::deallocate_decompression_context(allocator, context);
 		}
@@ -79,12 +81,12 @@ namespace acl
 			uniformly_sampled::decompress_bone(settings, clip, context, sample_time, sample_bone_index, out_rotation, out_translation, out_scale);
 		}
 
-		virtual uint32_t get_uid() const override
-		{
-			return m_compression_settings.hash();
-		}
+		virtual const CompressionSettings& get_compression_settings() const override { return m_compression_settings; }
+
+		virtual uint32_t get_uid() const override { return m_compression_settings.hash(); }
 
 	private:
+		TransformErrorMetric m_error_metric;
 		CompressionSettings m_compression_settings;
 	};
 }

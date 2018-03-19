@@ -25,11 +25,12 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #include "acl/core/error.h"
-#include "acl/core/memory.h"
+#include "acl/core/memory_utils.h"
+#include "acl/core/track_types.h"
 #include "acl/math/vector4_32.h"
 #include "acl/math/scalar_packing.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace acl
 {
@@ -221,62 +222,6 @@ namespace acl
 		return vector_set(x, y, z);
 	}
 
-	inline void pack_vector3_72(const Vector4_32& vector, bool is_unsigned, uint8_t* out_vector_data)
-	{
-		uint32_t vector_x = is_unsigned ? pack_scalar_unsigned_24(vector_get_x(vector)) : pack_scalar_signed_24(vector_get_x(vector));
-		uint32_t vector_y = is_unsigned ? pack_scalar_unsigned_24(vector_get_y(vector)) : pack_scalar_signed_24(vector_get_y(vector));
-		uint32_t vector_z = is_unsigned ? pack_scalar_unsigned_24(vector_get_z(vector)) : pack_scalar_signed_24(vector_get_z(vector));
-
-		uint8_t* data = reinterpret_cast<uint8_t*>(out_vector_data);
-		data[0] = safe_static_cast<uint8_t>(vector_x >> 16);
-		data[1] = safe_static_cast<uint8_t>((vector_x >> 8) & 0xFF);
-		data[2] = safe_static_cast<uint8_t>(vector_x & 0xFF);
-		data[3] = safe_static_cast<uint8_t>(vector_y >> 16);
-		data[4] = safe_static_cast<uint8_t>((vector_y >> 8) & 0xFF);
-		data[5] = safe_static_cast<uint8_t>(vector_y & 0xFF);
-		data[6] = safe_static_cast<uint8_t>(vector_z >> 16);
-		data[7] = safe_static_cast<uint8_t>((vector_z >> 8) & 0xFF);
-		data[8] = safe_static_cast<uint8_t>(vector_z & 0xFF);
-	}
-
-	inline Vector4_32 unpack_vector3_72(bool is_unsigned, const uint8_t* vector_data)
-	{
-		const uint8_t* data_ptr_u8 = safe_ptr_cast<const uint8_t>(vector_data);
-		uint32_t x32 = (data_ptr_u8[0] << 16) | (data_ptr_u8[1] << 8) | data_ptr_u8[2];
-		uint32_t y32 = (data_ptr_u8[3] << 16) | (data_ptr_u8[4] << 8) | data_ptr_u8[5];
-		uint32_t z32 = (data_ptr_u8[6] << 16) | (data_ptr_u8[7] << 8) | data_ptr_u8[8];
-		float x = is_unsigned ? unpack_scalar_unsigned_24(x32) : unpack_scalar_signed_24(x32);
-		float y = is_unsigned ? unpack_scalar_unsigned_24(y32) : unpack_scalar_signed_24(y32);
-		float z = is_unsigned ? unpack_scalar_unsigned_24(z32) : unpack_scalar_signed_24(z32);
-		return vector_set(x, y, z);
-	}
-
-	// Assumes the 'vector_data' is in big-endian order
-	inline Vector4_32 unpack_vector3_72(bool is_unsigned, const uint8_t* vector_data, uint64_t bit_offset)
-	{
-		uint64_t byte_offset = bit_offset / 8;
-		uint64_t vector_u64 = unaligned_load<uint64_t>(vector_data + byte_offset);
-		vector_u64 = byte_swap(vector_u64);
-		vector_u64 <<= bit_offset % 8;
-		vector_u64 >>= 64 - 48;
-
-		const uint32_t x32 = safe_static_cast<uint32_t>((vector_u64 >> 24) & 0xFFFFFF);
-		const uint32_t y32 = safe_static_cast<uint32_t>(vector_u64 & 0xFFFFFF);
-
-		bit_offset += 48;
-		byte_offset = bit_offset / 8;
-		vector_u64 = unaligned_load<uint64_t>(vector_data + byte_offset);
-		vector_u64 = byte_swap(vector_u64);
-		vector_u64 <<= bit_offset % 8;
-		vector_u64 >>= 64 - 24;
-
-		const uint32_t z32 = safe_static_cast<uint32_t>(vector_u64);
-		const float x = is_unsigned ? unpack_scalar_unsigned_24(x32) : unpack_scalar_signed_24(x32);
-		const float y = is_unsigned ? unpack_scalar_unsigned_24(y32) : unpack_scalar_signed_24(y32);
-		const float z = is_unsigned ? unpack_scalar_unsigned_24(z32) : unpack_scalar_signed_24(z32);
-		return vector_set(x, y, z);
-	}
-
 	inline void pack_vector3_n(const Vector4_32& vector, uint8_t XBits, uint8_t YBits, uint8_t ZBits, bool is_unsigned, uint8_t* out_vector_data)
 	{
 		uint32_t vector_x = is_unsigned ? pack_scalar_unsigned(vector_get_x(vector), XBits) : pack_scalar_signed(vector_get_x(vector), XBits);
@@ -285,9 +230,7 @@ namespace acl
 
 		uint64_t vector_u64 = (static_cast<uint64_t>(vector_x) << (YBits + ZBits)) | (static_cast<uint64_t>(vector_y) << ZBits) | static_cast<uint64_t>(vector_z);
 
-		// Unaligned write
-		uint64_t* data = reinterpret_cast<uint64_t*>(out_vector_data);
-		*data = vector_u64;
+		unaligned_write(vector_u64, out_vector_data);
 	}
 
 	inline Vector4_32 unpack_vector3_n(uint8_t XBits, uint8_t YBits, uint8_t ZBits, bool is_unsigned, const uint8_t* vector_data)
@@ -303,11 +246,11 @@ namespace acl
 	}
 
 	// Assumes the 'vector_data' is in big-endian order
-	inline Vector4_32 unpack_vector3_n(uint8_t XBits, uint8_t YBits, uint8_t ZBits, bool is_unsigned, const uint8_t* vector_data, uint64_t bit_offset)
+	inline Vector4_32 unpack_vector3_n(uint8_t XBits, uint8_t YBits, uint8_t ZBits, bool is_unsigned, const uint8_t* vector_data, int32_t bit_offset)
 	{
 		uint8_t num_bits_to_read = XBits + YBits + ZBits;
 
-		uint64_t byte_offset = bit_offset / 8;
+		int32_t byte_offset = bit_offset / 8;
 		uint64_t vector_u64 = unaligned_load<uint64_t>(vector_data + byte_offset);
 		vector_u64 = byte_swap(vector_u64);
 		vector_u64 <<= bit_offset % 8;
@@ -352,10 +295,5 @@ namespace acl
 			ACL_ENSURE(false, "Invalid or unsupported vector format: %s", get_vector_format_name(format));
 			return 0;
 		}
-	}
-
-	constexpr uint32_t get_range_reduction_vector_size(VectorFormat8 format)
-	{
-		return sizeof(float) * 6;
 	}
 }

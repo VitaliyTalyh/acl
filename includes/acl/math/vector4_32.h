@@ -24,10 +24,8 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include <cstring>
-
 #include "acl/core/error.h"
-#include "acl/core/memory.h"
+#include "acl/core/memory_utils.h"
 #include "acl/math/math.h"
 #include "acl/math/scalar_32.h"
 
@@ -69,17 +67,17 @@ namespace acl
 		return vector_set(input[0], input[1], input[2], input[3]);
 	}
 
+	inline Vector4_32 vector_unaligned_load3(const float* input)
+	{
+		ACL_ENSURE(is_aligned(input), "Invalid alignment");
+		return vector_set(input[0], input[1], input[2], 0.0f);
+	}
+
 	inline Vector4_32 vector_unaligned_load_32(const uint8_t* input)
 	{
 		Vector4_32 result;
 		memcpy(&result, input, sizeof(Vector4_32));
 		return result;
-	}
-
-	inline Vector4_32 vector_unaligned_load3(const float* input)
-	{
-		ACL_ENSURE(is_aligned(input), "Invalid alignment");
-		return vector_set(input[0], input[1], input[2], 0.0f);
 	}
 
 	inline Vector4_32 vector_unaligned_load3_32(const uint8_t* input)
@@ -185,11 +183,6 @@ namespace acl
 		}
 	}
 
-	inline float* vector_as_float_ptr(Vector4_32& input)
-	{
-		return reinterpret_cast<float*>(&input);
-	}
-
 	inline const float* vector_as_float_ptr(const Vector4_32& input)
 	{
 		return reinterpret_cast<const float*>(&input);
@@ -204,17 +197,17 @@ namespace acl
 		output[3] = vector_get_w(input);
 	}
 
-	inline void vector_unaligned_write(const Vector4_32& input, uint8_t* output)
-	{
-		memcpy(output, &input, sizeof(Vector4_32));
-	}
-
 	inline void vector_unaligned_write3(const Vector4_32& input, float* output)
 	{
 		ACL_ENSURE(is_aligned(output), "Invalid alignment");
 		output[0] = vector_get_x(input);
 		output[1] = vector_get_y(input);
 		output[2] = vector_get_z(input);
+	}
+
+	inline void vector_unaligned_write(const Vector4_32& input, uint8_t* output)
+	{
+		memcpy(output, &input, sizeof(Vector4_32));
 	}
 
 	inline void vector_unaligned_write3(const Vector4_32& input, uint8_t* output)
@@ -392,6 +385,16 @@ namespace acl
 		return vector_length3(vector_sub(rhs, lhs));
 	}
 
+	inline Vector4_32 vector_normalize3(const Vector4_32& input, float threshold = 0.00000001f)
+	{
+		// Reciprocal is more accurate to normalize with
+		float inv_len = vector_length_reciprocal3(input);
+		if (inv_len >= threshold)
+			return vector_mul(input, vector_set(inv_len));
+		else
+			return input;
+	}
+
 	inline Vector4_32 vector_lerp(const Vector4_32& start, const Vector4_32& end, float alpha)
 	{
 		return vector_add(start, vector_mul(vector_sub(end, start), vector_set(alpha)));
@@ -423,6 +426,15 @@ namespace acl
 		return _mm_cmplt_ps(lhs, rhs);
 #else
 		return Vector4_32{ math_impl::get_mask_value(lhs.x < rhs.x), math_impl::get_mask_value(lhs.y < rhs.y), math_impl::get_mask_value(lhs.z < rhs.z), math_impl::get_mask_value(lhs.w < rhs.w) };
+#endif
+	}
+
+	inline Vector4_32 vector_greater_equal(const Vector4_32& lhs, const Vector4_32& rhs)
+	{
+#if defined(ACL_SSE2_INTRINSICS)
+		return _mm_cmpge_ps(lhs, rhs);
+#else
+		return Vector4_32{ math_impl::get_mask_value(lhs.x >= rhs.x), math_impl::get_mask_value(lhs.y >= rhs.y), math_impl::get_mask_value(lhs.z >= rhs.z), math_impl::get_mask_value(lhs.w >= rhs.w) };
 #endif
 	}
 
@@ -536,22 +548,22 @@ namespace acl
 
 	inline bool vector_all_near_equal(const Vector4_32& lhs, const Vector4_32& rhs, float threshold = 0.00001f)
 	{
-		return vector_all_less_than(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
+		return vector_all_less_equal(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
 	}
 
 	inline bool vector_all_near_equal3(const Vector4_32& lhs, const Vector4_32& rhs, float threshold = 0.00001f)
 	{
-		return vector_all_less_than3(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
+		return vector_all_less_equal3(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
 	}
 
 	inline bool vector_any_near_equal(const Vector4_32& lhs, const Vector4_32& rhs, float threshold = 0.00001f)
 	{
-		return vector_any_less_than(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
+		return vector_any_less_equal(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
 	}
 
 	inline bool vector_any_near_equal3(const Vector4_32& lhs, const Vector4_32& rhs, float threshold = 0.00001f)
 	{
-		return vector_any_less_than3(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
+		return vector_any_less_equal3(vector_abs(vector_sub(lhs, rhs)), vector_set(threshold));
 	}
 
 	inline bool vector_is_finite(const Vector4_32& input)
@@ -583,7 +595,7 @@ namespace acl
 		{
 			// All four components come from input 0
 #if defined(ACL_SSE2_INTRINSICS)
-			return _mm_shuffle_ps(input0, input0, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp0), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp3)));
+			return _mm_shuffle_ps(input0, input0, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp3), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp0)));
 #else
 			return vector_set(vector_get_component(input0, comp0), vector_get_component(input0, comp1), vector_get_component(input0, comp2), vector_get_component(input0, comp3));
 #endif
@@ -593,7 +605,7 @@ namespace acl
 		{
 			// All four components come from input 1
 #if defined(ACL_SSE2_INTRINSICS)
-			return _mm_shuffle_ps(input1, input1, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp0), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp3)));
+			return _mm_shuffle_ps(input1, input1, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp3), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp0)));
 #else
 			return vector_set(vector_get_component(input1, comp0), vector_get_component(input1, comp1), vector_get_component(input1, comp2), vector_get_component(input1, comp3));
 #endif
@@ -603,7 +615,7 @@ namespace acl
 		{
 			// First two components come from input 0, second two come from input 1
 #if defined(ACL_SSE2_INTRINSICS)
-			return _mm_shuffle_ps(input0, input1, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp0), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp3)));
+			return _mm_shuffle_ps(input0, input1, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp3), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp0)));
 #else
 			return vector_set(vector_get_component(input0, comp0), vector_get_component(input0, comp1), vector_get_component(input1, comp2), vector_get_component(input1, comp3));
 #endif
@@ -613,7 +625,7 @@ namespace acl
 		{
 			// First two components come from input 1, second two come from input 0
 #if defined(ACL_SSE2_INTRINSICS)
-			return _mm_shuffle_ps(input1, input0, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp0), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp3)));
+			return _mm_shuffle_ps(input1, input0, _MM_SHUFFLE(GET_VECTOR_MIX_COMPONENT_INDEX(comp3), GET_VECTOR_MIX_COMPONENT_INDEX(comp2), GET_VECTOR_MIX_COMPONENT_INDEX(comp1), GET_VECTOR_MIX_COMPONENT_INDEX(comp0)));
 #else
 			return vector_set(vector_get_component(input1, comp0), vector_get_component(input1, comp1), vector_get_component(input0, comp2), vector_get_component(input0, comp3));
 #endif
@@ -659,8 +671,13 @@ namespace acl
 #endif
 		}
 
-		ACL_ENSURE(false, "vector_mix permutation not handled");
-		return input0;
+		// Slow code path, not yet optimized
+		//ACL_ENSURE(false, "vector_mix permutation not handled");
+		const float x = math_impl::is_vector_mix_arg_xyzw(comp0) ? vector_get_component<comp0>(input0) : vector_get_component<comp0>(input1);
+		const float y = math_impl::is_vector_mix_arg_xyzw(comp1) ? vector_get_component<comp1>(input0) : vector_get_component<comp1>(input1);
+		const float z = math_impl::is_vector_mix_arg_xyzw(comp2) ? vector_get_component<comp2>(input0) : vector_get_component<comp2>(input1);
+		const float w = math_impl::is_vector_mix_arg_xyzw(comp3) ? vector_get_component<comp3>(input0) : vector_get_component<comp3>(input1);
+		return vector_set(x, y, z, w);
 	}
 
 	inline Vector4_32 vector_mix_xxxx(const Vector4_32& input) { return vector_mix<VectorMix::X, VectorMix::X, VectorMix::X, VectorMix::X>(input, input); }
@@ -669,6 +686,7 @@ namespace acl
 	inline Vector4_32 vector_mix_wwww(const Vector4_32& input) { return vector_mix<VectorMix::W, VectorMix::W, VectorMix::W, VectorMix::W>(input, input); }
 
 	inline Vector4_32 vector_mix_xxyy(const Vector4_32& input) { return vector_mix<VectorMix::X, VectorMix::X, VectorMix::Y, VectorMix::Y>(input, input); }
+	inline Vector4_32 vector_mix_xzyw(const Vector4_32& input) { return vector_mix<VectorMix::X, VectorMix::Z, VectorMix::Y, VectorMix::W>(input, input); }
 	inline Vector4_32 vector_mix_yzxy(const Vector4_32& input) { return vector_mix<VectorMix::Y, VectorMix::Z, VectorMix::X, VectorMix::Y>(input, input); }
 	inline Vector4_32 vector_mix_ywxz(const Vector4_32& input) { return vector_mix<VectorMix::Y, VectorMix::W, VectorMix::X, VectorMix::Z>(input, input); }
 	inline Vector4_32 vector_mix_zxyx(const Vector4_32& input) { return vector_mix<VectorMix::Z, VectorMix::X, VectorMix::Y, VectorMix::X>(input, input); }
@@ -680,6 +698,7 @@ namespace acl
 	inline Vector4_32 vector_mix_xyab(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::X, VectorMix::Y, VectorMix::A, VectorMix::B>(input0, input1); }
 	inline Vector4_32 vector_mix_xzac(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::X, VectorMix::Z, VectorMix::A, VectorMix::C>(input0, input1); }
 	inline Vector4_32 vector_mix_xbxb(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::X, VectorMix::B, VectorMix::X, VectorMix::B>(input0, input1); }
+	inline Vector4_32 vector_mix_xbzd(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::X, VectorMix::B, VectorMix::Z, VectorMix::D>(input0, input1); }
 	inline Vector4_32 vector_mix_ywbd(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::Y, VectorMix::W, VectorMix::B, VectorMix::D>(input0, input1); }
 	inline Vector4_32 vector_mix_zyax(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::Z, VectorMix::Y, VectorMix::A, VectorMix::X>(input0, input1); }
 	inline Vector4_32 vector_mix_zycx(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::Z, VectorMix::Y, VectorMix::C, VectorMix::X>(input0, input1); }
@@ -694,4 +713,13 @@ namespace acl
 	inline Vector4_32 vector_mix_bywx(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::B, VectorMix::Y, VectorMix::W, VectorMix::X>(input0, input1); }
 	inline Vector4_32 vector_mix_dxwc(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::D, VectorMix::X, VectorMix::W, VectorMix::C>(input0, input1); }
 	inline Vector4_32 vector_mix_dywx(const Vector4_32& input0, const Vector4_32& input1) { return vector_mix<VectorMix::D, VectorMix::Y, VectorMix::W, VectorMix::X>(input0, input1); }
+
+	//////////////////////////////////////////////////////////////////////////
+	// Misc
+
+	inline Vector4_32 vector_sign(const Vector4_32& input)
+	{
+		Vector4_32 mask = vector_greater_equal(input, vector_zero_32());
+		return vector_blend(mask, vector_set(1.0f), vector_set(-1.0f));
+	}
 }

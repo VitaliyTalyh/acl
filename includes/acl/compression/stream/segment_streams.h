@@ -24,7 +24,7 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "acl/core/memory.h"
+#include "acl/core/iallocator.h"
 #include "acl/core/error.h"
 #include "acl/compression/compression_settings.h"
 #include "acl/compression/stream/clip_context.h"
@@ -33,7 +33,7 @@
 
 namespace acl
 {
-	inline void segment_streams(Allocator& allocator, ClipContext& clip_context, const SegmentingSettings& settings)
+	inline void segment_streams(IAllocator& allocator, ClipContext& clip_context, const SegmentingSettings& settings)
 	{
 		if (!settings.enabled)
 			return;
@@ -89,13 +89,14 @@ namespace acl
 			segment.num_bones = clip_context.num_bones;
 			segment.num_samples = safe_static_cast<uint16_t>(num_samples_in_segment);
 			segment.clip_sample_offset = clip_sample_index;
-			segment.animated_pose_bit_size = 0;
-			segment.animated_data_size = 0;
-			segment.range_data_size = 0;
 			segment.segment_index = segment_index;
 			segment.are_rotations_normalized = false;
 			segment.are_translations_normalized = false;
 			segment.are_scales_normalized = false;
+			segment.animated_pose_bit_size = 0;
+			segment.animated_data_size = 0;
+			segment.range_data_size = 0;
+			segment.total_header_size = 0;
 
 			for (uint16_t bone_index = 0; bone_index < clip_context.num_bones; ++bone_index)
 			{
@@ -157,6 +158,7 @@ namespace acl
 		}
 
 		deallocate_type_array(allocator, num_samples_per_segment, original_num_segments);
+		destroy_segment_context(allocator, *clip_segment);
 		deallocate_type_array(allocator, clip_segment, 1);
 	}
 }

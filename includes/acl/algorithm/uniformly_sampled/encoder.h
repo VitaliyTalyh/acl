@@ -24,7 +24,7 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "acl/core/memory.h"
+#include "acl/core/iallocator.h"
 #include "acl/core/error.h"
 #include "acl/core/bitset.h"
 #include "acl/core/enum_utils.h"
@@ -73,7 +73,7 @@ namespace acl
 	namespace uniformly_sampled
 	{
 		// Encoder entry point
-		inline CompressedClip* compress_clip(Allocator& allocator, const AnimationClip& clip, const RigidSkeleton& skeleton, const CompressionSettings& settings, OutputStats& stats)
+		inline CompressedClip* compress_clip(IAllocator& allocator, const AnimationClip& clip, const RigidSkeleton& skeleton, CompressionSettings settings, OutputStats& stats)
 		{
 			using namespace impl;
 
@@ -87,19 +87,9 @@ namespace acl
 			if (ACL_TRY_ASSERT(num_samples > 0, "Clip has no samples!"))
 				return nullptr;
 
-			if (settings.translation_format != VectorFormat8::Vector3_96)
-			{
-				bool has_clip_range_reduction = are_any_enum_flags_set(settings.range_reduction, RangeReductionFlags8::Translations);
-				bool has_segment_range_reduction = settings.segmenting.enabled && are_any_enum_flags_set(settings.segmenting.range_reduction, RangeReductionFlags8::Translations);
-				if (ACL_TRY_ASSERT(has_clip_range_reduction | has_segment_range_reduction, "%s quantization requires range reduction to be enabled at the clip or segment level!", get_vector_format_name(settings.translation_format)))
-					return nullptr;
-			}
-
-			if (settings.segmenting.enabled && settings.segmenting.range_reduction != RangeReductionFlags8::None)
-			{
-				if (ACL_TRY_ASSERT(settings.range_reduction != RangeReductionFlags8::None, "Per segment range reduction requires per clip range reduction to be enabled!"))
-					return nullptr;
-			}
+			const char* settings_error = settings.get_error();
+			if (ACL_TRY_ASSERT(settings_error == nullptr, "%s", settings_error))
+				return nullptr;
 
 			ClipContext raw_clip_context;
 			initialize_clip_context(allocator, clip, skeleton, raw_clip_context);
@@ -112,10 +102,8 @@ namespace acl
 			// Extract our clip ranges now, we need it for compacting the constant streams
 			extract_clip_bone_ranges(allocator, clip_context);
 
-			// TODO: Expose this, especially the translation threshold depends on the unit scale.
-			// Centimeters VS meters, a different threshold should be used. Perhaps we should pass an
-			// argument to the compression algorithm that states the units used or we should force centimeters
-			compact_constant_streams(allocator, clip_context, 0.00001f, 0.001f, 0.00001f);
+			// Compact and collapse the constant streams
+			compact_constant_streams(allocator, clip_context, settings.constant_rotation_threshold, settings.constant_translation_threshold, settings.constant_scale_threshold);
 
 			uint32_t clip_range_data_size = 0;
 			if (settings.range_reduction != RangeReductionFlags8::None)
@@ -128,6 +116,10 @@ namespace acl
 			{
 				segment_streams(allocator, clip_context, settings.segmenting);
 
+				// If we have a single segment, disable range reduction since it won't help
+				if (clip_context.num_segments == 1)
+					settings.segmenting.range_reduction = RangeReductionFlags8::None;
+
 				if (settings.segmenting.range_reduction != RangeReductionFlags8::None)
 				{
 					extract_segment_bone_ranges(allocator, clip_context);
@@ -135,7 +127,7 @@ namespace acl
 				}
 			}
 
-			quantize_streams(allocator, clip_context, settings.rotation_format, settings.translation_format, settings.scale_format, clip, skeleton, raw_clip_context);
+			quantize_streams(allocator, clip_context, settings, skeleton, raw_clip_context);
 
 			const uint32_t constant_data_size = get_constant_data_size(clip_context);
 
@@ -145,7 +137,7 @@ namespace acl
 
 			const uint32_t num_tracks_per_bone = clip_context.has_scale ? 3 : 2;
 			const uint32_t num_tracks = uint32_t(num_bones) * num_tracks_per_bone;
-			const uint32_t bitset_size = get_bitset_size(num_tracks);
+			const BitSetDescription bitset_desc = BitSetDescription::make_from_num_bits(num_tracks);
 
 			uint32_t buffer_size = 0;
 			// Per clip data
@@ -153,22 +145,32 @@ namespace acl
 			buffer_size += sizeof(ClipHeader);
 			buffer_size += sizeof(SegmentHeader) * clip_context.num_segments;	// Segment headers
 			buffer_size = align_to(buffer_size, 4);								// Align bitsets
-			buffer_size += sizeof(uint32_t) * bitset_size;						// Default tracks bitset
-			buffer_size += sizeof(uint32_t) * bitset_size;						// Constant tracks bitset
+			buffer_size += bitset_desc.get_num_bytes();							// Default tracks bitset
+			buffer_size += bitset_desc.get_num_bytes();							// Constant tracks bitset
 			buffer_size = align_to(buffer_size, 4);								// Align constant track data
 			buffer_size += constant_data_size;									// Constant track data
 			buffer_size = align_to(buffer_size, 4);								// Align range data
 			buffer_size += clip_range_data_size;								// Range data
+
+			clip_context.total_header_size = buffer_size;
+
 			// Per segment data
-			for (const SegmentContext& segment : clip_context.segment_iterator())
+			for (SegmentContext& segment : clip_context.segment_iterator())
 			{
+				const uint32_t header_start = buffer_size;
+
 				buffer_size += format_per_track_data_size;						// Format per track data
 				// TODO: Alignment only necessary with 16bit per component
 				buffer_size = align_to(buffer_size, 2);							// Align range data
 				buffer_size += segment.range_data_size;							// Range data
+
+				const uint32_t header_end = buffer_size;
+
 				// TODO: Variable bit rate doesn't need alignment
 				buffer_size = align_to(buffer_size, 4);							// Align animated data
 				buffer_size += segment.animated_data_size;						// Animated track data
+
+				segment.total_header_size = header_end - header_start;
 			}
 
 			uint8_t* buffer = allocate_type_array_aligned<uint8_t>(allocator, buffer_size, 16);
@@ -188,14 +190,14 @@ namespace acl
 			header.sample_rate = clip.get_sample_rate();
 			header.segment_headers_offset = sizeof(ClipHeader);
 			header.default_tracks_bitset_offset = align_to(header.segment_headers_offset + (sizeof(SegmentHeader) * clip_context.num_segments), 4);
-			header.constant_tracks_bitset_offset = header.default_tracks_bitset_offset + (sizeof(uint32_t) * bitset_size);
-			header.constant_track_data_offset = align_to(header.constant_tracks_bitset_offset + (sizeof(uint32_t) * bitset_size), 4);
+			header.constant_tracks_bitset_offset = header.default_tracks_bitset_offset + bitset_desc.get_num_bytes();
+			header.constant_track_data_offset = align_to(header.constant_tracks_bitset_offset + bitset_desc.get_num_bytes(), 4);
 			header.clip_range_data_offset = align_to(header.constant_track_data_offset + constant_data_size, 4);
 
 			const uint16_t segment_headers_start_offset = safe_static_cast<uint16_t>(header.clip_range_data_offset + clip_range_data_size);
 			write_segment_headers(clip_context, settings, header.get_segment_headers(), segment_headers_start_offset);
-			write_default_track_bitset(clip_context, header.get_default_tracks_bitset(), bitset_size);
-			write_constant_track_bitset(clip_context, header.get_constant_tracks_bitset(), bitset_size);
+			write_default_track_bitset(clip_context, header.get_default_tracks_bitset(), bitset_desc);
+			write_constant_track_bitset(clip_context, header.get_constant_tracks_bitset(), bitset_desc);
 
 			if (constant_data_size > 0)
 				write_constant_track_data(clip_context, header.get_constant_track_data(), constant_data_size);
@@ -213,10 +215,11 @@ namespace acl
 
 			compression_time.stop();
 
-			if (stats.get_logging() != StatLogging::None)
+#if defined(SJSON_CPP_WRITER)
+			if (stats.logging != StatLogging::None)
 			{
 				write_stats(allocator, clip, clip_context, skeleton, *compressed_clip, settings, header, raw_clip_context, compression_time, stats,
-					[&](Allocator& allocator)
+					[&](IAllocator& allocator)
 					{
 						DecompressionSettings settings;
 						return allocate_decompression_context(allocator, settings, *compressed_clip);
@@ -227,11 +230,12 @@ namespace acl
 						DefaultOutputWriter writer(out_transforms, num_transforms);
 						decompress_pose(settings, *compressed_clip, context, sample_time, writer);
 					},
-					[&](Allocator& allocator, void* context)
+					[&](IAllocator& allocator, void* context)
 					{
 						deallocate_decompression_context(allocator, context);
 					});
 			}
+#endif
 
 			destroy_clip_context(allocator, clip_context);
 			destroy_clip_context(allocator, raw_clip_context);

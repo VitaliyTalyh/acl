@@ -26,25 +26,18 @@
 
 #include "acl/core/algorithm_types.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace acl
 {
-	// Algorithm version numbers
-	static constexpr uint16_t ALGORITHM_VERSION_UNIFORMLY_SAMPLED		= 0;
-	//static constexpr uint16_t ALGORITHM_VERSION_LINEAR_KEY_REDUCTION	= 0;
-	//static constexpr uint16_t ALGORITHM_VERSION_SPLINE_KEY_REDUCTION	= 0;
-
-	//////////////////////////////////////////////////////////////////////////
-
 	// TODO: constexpr
 	inline uint16_t get_algorithm_version(AlgorithmType8 type)
 	{
 		switch (type)
 		{
-			case AlgorithmType8::UniformlySampled:		return ALGORITHM_VERSION_UNIFORMLY_SAMPLED;
-			//case AlgorithmType8::LinearKeyReduction:	return ALGORITHM_VERSION_LINEAR_KEY_REDUCTION;
-			//case AlgorithmType8::SplineKeyReduction:	return ALGORITHM_VERSION_SPLINE_KEY_REDUCTION;
+			case AlgorithmType8::UniformlySampled:		return 1;
+			//case AlgorithmType8::LinearKeyReduction:	return 0;
+			//case AlgorithmType8::SplineKeyReduction:	return 0;
 			default:									return 0xFFFF;
 		}
 	}

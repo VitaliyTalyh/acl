@@ -32,11 +32,16 @@
 namespace acl
 {
 	// TODO: Get a higher precision number
-	constexpr float ACL_PI_32 = 3.141592654f;
+	constexpr float k_pi_32 = 3.141592654f;
 
 	inline float floor(float input)
 	{
 		return std::floor(input);
+	}
+
+	inline float ceil(float input)
+	{
+		return std::ceil(input);
 	}
 
 	inline float clamp(float input, float min, float max)
@@ -140,7 +145,7 @@ namespace acl
 
 	constexpr float deg2rad(float deg)
 	{
-		return (deg / 180.0f) * ACL_PI_32;
+		return (deg / 180.0f) * k_pi_32;
 	}
 
 	inline bool scalar_near_equal(float lhs, float rhs, float threshold)
@@ -148,14 +153,14 @@ namespace acl
 		return abs(lhs - rhs) < threshold;
 	}
 
-	inline float is_finite(float input)
+	inline bool is_finite(float input)
 	{
 		return std::isfinite(input);
 	}
 
 	inline float symmetric_round(float input)
 	{
-		return floor(input >= 0.0f ? (input + 0.5f) : (input - 0.5f));
+		return input >= 0.0f ? floor(input + 0.5f) : ceil(input - 0.5f);
 	}
 
 	inline float fraction(float value)

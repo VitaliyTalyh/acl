@@ -26,11 +26,12 @@
 
 #include "acl/core/algorithm_versions.h"
 #include "acl/core/hash.h"
-#include "acl/core/memory.h"
+#include "acl/core/memory_utils.h"
+#include "acl/core/ptr_offset.h"
 #include "acl/core/range_reduction_types.h"
 #include "acl/core/track_types.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace acl
 {
@@ -74,7 +75,9 @@ namespace acl
 			, m_version(get_algorithm_version(type))
 			, m_type(type)
 			, m_padding(0)
-		{}
+		{
+			(void)m_padding;	// Avoid unused warning
+		}
 
 		// 16 byte header, the rest of the data follows in memory
 		uint32_t		m_size;
@@ -154,12 +157,12 @@ namespace acl
 		const uint8_t*	get_segment_range_data(const SegmentHeader& header) const	{ return header.range_data_offset.safe_add_to(this); }
 	};
 
-	constexpr ClipHeader& get_clip_header(CompressedClip& clip)
+	inline ClipHeader& get_clip_header(CompressedClip& clip)
 	{
 		return *add_offset_to_ptr<ClipHeader>(&clip, sizeof(CompressedClip));
 	}
 
-	constexpr const ClipHeader& get_clip_header(const CompressedClip& clip)
+	inline const ClipHeader& get_clip_header(const CompressedClip& clip)
 	{
 		return *add_offset_to_ptr<const ClipHeader>(&clip, sizeof(CompressedClip));
 	}

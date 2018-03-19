@@ -24,7 +24,8 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include <stdint.h>
+#include <cstdint>
+#include <cstring>
 #include <type_traits>
 
 namespace acl
@@ -35,11 +36,11 @@ namespace acl
 		class fnv1a_impl final
 		{
 		public:
-			constexpr fnv1a_impl() noexcept
+			constexpr fnv1a_impl()
 				: m_state(OffsetBasis)
 			{}
 
-			void update(const void* data, size_t size) noexcept
+			void update(const void* data, size_t size)
 			{
 				const uint8_t* cdata = static_cast<const uint8_t*>(data);
 				ResultType acc = m_state;
@@ -51,7 +52,7 @@ namespace acl
 				m_state = acc;
 			}
 
-			constexpr ResultType digest() const noexcept { return m_state; }
+			constexpr ResultType digest() const { return m_state; }
 
 		private:
 			static_assert(std::is_unsigned<ResultType>::value, "need unsigned integer");
@@ -74,6 +75,8 @@ namespace acl
 	template<typename ElementType>
 	inline uint32_t hash32(const ElementType& element) { return hash32(&element, sizeof(ElementType)); }
 
+	inline uint32_t hash32(const char* str) { return hash32(str, std::strlen(str)); }
+
 	inline uint64_t hash64(const void* buffer, size_t buffer_size)
 	{
 		fnv1a_64 hashfn = fnv1a_64();
@@ -83,6 +86,8 @@ namespace acl
 
 	template<typename ElementType>
 	inline uint64_t hash64(const ElementType& element) { return hash64(&element, sizeof(ElementType)); }
+
+	inline uint64_t hash64(const char* str) { return hash64(str, std::strlen(str)); }
 
 	inline uint32_t hash_combine(uint32_t hash_a, uint32_t hash_b) { return (hash_a ^ hash_b) * 16777619u; }
 	inline uint64_t hash_combine(uint64_t hash_a, uint64_t hash_b) { return (hash_a ^ hash_b) * 1099511628211ull; }

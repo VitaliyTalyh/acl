@@ -24,7 +24,7 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "acl/core/memory.h"
+#include "acl/core/iallocator.h"
 #include "acl/core/compressed_clip.h"
 #include "acl/compression/compression_settings.h"
 #include "acl/compression/stream/clip_context.h"
@@ -32,7 +32,7 @@
 #include "acl/compression/stream/write_range_data.h"
 #include "acl/compression/stream/write_stream_data.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 namespace acl
 {

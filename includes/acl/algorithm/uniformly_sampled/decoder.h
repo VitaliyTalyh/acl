@@ -26,15 +26,16 @@
 
 #include "acl/core/bitset.h"
 #include "acl/core/compressed_clip.h"
-#include "acl/core/utils.h"
+#include "acl/core/iallocator.h"
 #include "acl/core/range_reduction_types.h"
+#include "acl/core/utils.h"
 #include "acl/math/quat_32.h"
 #include "acl/math/vector4_32.h"
 #include "acl/math/quat_packing.h"
 #include "acl/decompression/decompress_data.h"
 #include "acl/decompression/output_writer.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 //////////////////////////////////////////////////////////////////////////
 // See encoder for details
@@ -63,10 +64,9 @@ namespace acl
 
 		namespace impl
 		{
-			// TODO: Add a platform define or constant for the cache line size
-			static constexpr size_t CONTEXT_ALIGN_AS = 64;
+			constexpr size_t k_cache_line_size = 64;
 
-			struct alignas(CONTEXT_ALIGN_AS) DecompressionContext
+			struct alignas(k_cache_line_size) DecompressionContext
 			{
 				// Read-only data
 				const SegmentHeader* segment_headers;
@@ -81,7 +81,7 @@ namespace acl
 				const uint8_t* segment_range_data[2];
 				const uint8_t* animated_track_data[2];
 
-				uint32_t bitset_size;
+				BitSetDescription bitset_desc;
 				uint8_t num_rotation_components;
 
 				float clip_duration;
@@ -89,7 +89,7 @@ namespace acl
 				bool has_mixed_packing;
 
 				// Read-write data
-				alignas(CONTEXT_ALIGN_AS) uint32_t constant_track_offset;
+				alignas(k_cache_line_size) uint32_t constant_track_offset;
 				uint32_t constant_track_data_offset;
 				uint32_t default_track_offset;
 				uint32_t clip_range_data_offset;
@@ -98,7 +98,7 @@ namespace acl
 				uint32_t segment_range_data_offset;
 
 				uint32_t key_frame_byte_offsets[2];
-				uint32_t key_frame_bit_offsets[2];
+				int32_t key_frame_bit_offsets[2];
 
 				float interpolation_alpha;
 			};
@@ -193,7 +193,7 @@ namespace acl
 				}
 
 				const uint32_t num_tracks_per_bone = header.has_scale ? 3 : 2;
-				context.bitset_size = get_bitset_size(uint32_t(header.num_bones) * num_tracks_per_bone);
+				context.bitset_desc = BitSetDescription::make_from_num_bits(header.num_bones * num_tracks_per_bone);
 				context.num_rotation_components = rotation_format == RotationFormat8::Quat_128 ? 4 : 3;
 
 				// If all tracks are variable, no need for any extra padding except at the very end of the data
@@ -305,21 +305,21 @@ namespace acl
 		};
 
 		template<class SettingsType>
-		inline void* allocate_decompression_context(Allocator& allocator, const SettingsType& settings, const CompressedClip& clip)
+		inline void* allocate_decompression_context(IAllocator& allocator, const SettingsType& settings, const CompressedClip& clip)
 		{
 			using namespace impl;
 
 			DecompressionContext* context = allocate_type<DecompressionContext>(allocator);
 
-			ACL_ASSERT(is_aligned_to(&context->segment_headers, CONTEXT_ALIGN_AS), "Read-only decompression context is misaligned");
-			ACL_ASSERT(is_aligned_to(&context->constant_track_offset, CONTEXT_ALIGN_AS), "Read-write decompression context is misaligned");
+			ACL_ASSERT(is_aligned_to(&context->segment_headers, k_cache_line_size), "Read-only decompression context is misaligned");
+			ACL_ASSERT(is_aligned_to(&context->constant_track_offset, k_cache_line_size), "Read-write decompression context is misaligned");
 
 			initialize_context(settings, get_clip_header(clip), *context);
 
 			return context;
 		}
 
-		inline void deallocate_decompression_context(Allocator& allocator, void* opaque_context)
+		inline void deallocate_decompression_context(IAllocator& allocator, void* opaque_context)
 		{
 			using namespace impl;
 
@@ -381,7 +381,7 @@ namespace acl
 
 			// TODO: Optimize this by counting the number of bits set, we can use the pop-count instruction on
 			// architectures that support it (e.g. xb1/ps4). This would entirely avoid looping here.
-			
+
 			for (uint32_t bone_index = 0; bone_index < header.num_bones; ++bone_index)
 			{
 				if (bone_index == sample_bone_index)

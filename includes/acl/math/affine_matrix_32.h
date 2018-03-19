@@ -31,7 +31,19 @@
 
 namespace acl
 {
-	AffineMatrix_32 matrix_set(const Vector4_32& x_axis, const Vector4_32& y_axis, const Vector4_32& z_axis, const Vector4_32& w_axis)
+	//////////////////////////////////////////////////////////////////////////
+	// An 4x4 affine matrix represents a 3D rotation, 3D translation, and 3D scale.
+	// It properly deals with skew/shear when present but once scale with mirroring is combined,
+	// it cannot be safely extracted back.
+	//
+	// Affine matrices have their last column always equal to [0, 0, 0, 1]
+	//
+	// X axis == forward
+	// Y axis == right
+	// Z axis == up
+	//////////////////////////////////////////////////////////////////////////
+
+	inline AffineMatrix_32 matrix_set(const Vector4_32& x_axis, const Vector4_32& y_axis, const Vector4_32& z_axis, const Vector4_32& w_axis)
 	{
 		ACL_ENSURE(vector_get_w(x_axis) == 0.0f, "X axis does not have a W component == 0.0");
 		ACL_ENSURE(vector_get_w(y_axis) == 0.0f, "Y axis does not have a W component == 0.0");
@@ -40,7 +52,7 @@ namespace acl
 		return AffineMatrix_32{x_axis, y_axis, z_axis, w_axis};
 	}
 
-	AffineMatrix_32 matrix_set(const Quat_32& quat, const Vector4_32& translation, const Vector4_32& scale)
+	inline AffineMatrix_32 matrix_set(const Quat_32& quat, const Vector4_32& translation, const Vector4_32& scale)
 	{
 		ACL_ENSURE(quat_is_normalized(quat), "Quaternion is not normalized");
 
@@ -67,6 +79,11 @@ namespace acl
 	inline AffineMatrix_32 matrix_identity_32()
 	{
 		return matrix_set(vector_set(1.0f, 0.0f, 0.0f, 0.0f), vector_set(0.0f, 1.0f, 0.0f, 0.0f), vector_set(0.0f, 0.0f, 1.0f, 0.0f), vector_set(0.0f, 0.0f, 0.0f, 1.0f));
+	}
+
+	inline AffineMatrix_32 matrix_cast(const AffineMatrix_64& input)
+	{
+		return matrix_set(vector_cast(input.x_axis), vector_cast(input.y_axis), vector_cast(input.z_axis), vector_cast(input.w_axis));
 	}
 
 	inline AffineMatrix_32 matrix_from_quat(const Quat_32& quat)
@@ -100,7 +117,7 @@ namespace acl
 
 	inline AffineMatrix_32 matrix_from_scale(const Vector4_32& scale)
 	{
-		ACL_ENSURE(vector_any_near_equal3(scale, vector_zero_32()), "Scale cannot be zero");
+		ACL_ENSURE(!vector_any_near_equal3(scale, vector_zero_32()), "Scale cannot be zero");
 		return matrix_set(vector_set(vector_get_x(scale), 0.0f, 0.0f, 0.0f), vector_set(0.0f, vector_get_y(scale), 0.0f, 0.0f), vector_set(0.0f, 0.0f, vector_get_z(scale), 0.0f), vector_set(0.0f, 0.0f, 0.0f, 1.0f));
 	}
 
@@ -109,10 +126,93 @@ namespace acl
 		return matrix_set(transform.rotation, transform.translation, transform.scale);
 	}
 
+	inline const Vector4_32& matrix_get_axis(const AffineMatrix_32& input, MatrixAxis axis)
+	{
+		switch (axis)
+		{
+		case MatrixAxis::X: return input.x_axis;
+		case MatrixAxis::Y: return input.y_axis;
+		case MatrixAxis::Z: return input.z_axis;
+		case MatrixAxis::W: return input.w_axis;
+		default:
+			ACL_ENSURE(false, "Invalid matrix axis");
+			return input.x_axis;
+		}
+	}
+
+	inline Vector4_32& matrix_get_axis(AffineMatrix_32& input, MatrixAxis axis)
+	{
+		switch (axis)
+		{
+		case MatrixAxis::X: return input.x_axis;
+		case MatrixAxis::Y: return input.y_axis;
+		case MatrixAxis::Z: return input.z_axis;
+		case MatrixAxis::W: return input.w_axis;
+		default:
+			ACL_ENSURE(false, "Invalid matrix axis");
+			return input.x_axis;
+		}
+	}
+
+	inline Quat_32 quat_from_matrix(const AffineMatrix_32& input)
+	{
+		if (vector_all_near_equal3(input.x_axis, vector_zero_32()) || vector_all_near_equal3(input.y_axis, vector_zero_32()) || vector_all_near_equal3(input.z_axis, vector_zero_32()))
+		{
+			// Zero scale not supported, return the identity
+			return quat_identity_32();
+		}
+
+		const float mtx_trace = vector_get_x(input.x_axis) + vector_get_y(input.y_axis) + vector_get_z(input.z_axis);
+		if (mtx_trace > 0.0f)
+		{
+			const float inv_trace = sqrt_reciprocal(mtx_trace + 1.0f);
+			const float half_inv_trace = inv_trace * 0.5f;
+
+			const float x = (vector_get_z(input.y_axis) - vector_get_y(input.z_axis)) * half_inv_trace;
+			const float y = (vector_get_x(input.z_axis) - vector_get_z(input.x_axis)) * half_inv_trace;
+			const float z = (vector_get_y(input.x_axis) - vector_get_x(input.y_axis)) * half_inv_trace;
+			const float w = reciprocal(inv_trace) * 0.5f;
+
+			return quat_normalize(quat_set(x, y, z, w));
+		}
+		else
+		{
+			int8_t best_axis = 0;
+			if (vector_get_y(input.y_axis) > vector_get_x(input.x_axis))
+				best_axis = 1;
+			if (vector_get_z(input.z_axis) > vector_get_component(matrix_get_axis(input, MatrixAxis(best_axis)), VectorMix(best_axis)))
+				best_axis = 2;
+
+			const int8_t next_best_axis = (best_axis + 1) % 3;
+			const int8_t next_next_best_axis = (next_best_axis + 1) % 3;
+
+			const float mtx_pseudo_trace = 1.0f +
+				vector_get_component(matrix_get_axis(input, MatrixAxis(best_axis)), VectorMix(best_axis)) -
+				vector_get_component(matrix_get_axis(input, MatrixAxis(next_best_axis)), VectorMix(next_best_axis)) -
+				vector_get_component(matrix_get_axis(input, MatrixAxis(next_next_best_axis)), VectorMix(next_next_best_axis));
+
+			const float inv_pseudo_trace = sqrt_reciprocal(mtx_pseudo_trace);
+			const float half_inv_pseudo_trace = inv_pseudo_trace * 0.5f;
+
+			float quat_values[4];
+			quat_values[best_axis] = reciprocal(inv_pseudo_trace) * 0.5f;
+			quat_values[next_best_axis] = half_inv_pseudo_trace *
+				(vector_get_component(matrix_get_axis(input, MatrixAxis(best_axis)), VectorMix(next_best_axis)) +
+					vector_get_component(matrix_get_axis(input, MatrixAxis(next_best_axis)), VectorMix(best_axis)));
+			quat_values[next_next_best_axis] = half_inv_pseudo_trace *
+				(vector_get_component(matrix_get_axis(input, MatrixAxis(best_axis)), VectorMix(next_next_best_axis)) +
+					vector_get_component(matrix_get_axis(input, MatrixAxis(next_next_best_axis)), VectorMix(best_axis)));
+			quat_values[3] = half_inv_pseudo_trace *
+				(vector_get_component(matrix_get_axis(input, MatrixAxis(next_best_axis)), VectorMix(next_next_best_axis)) -
+					vector_get_component(matrix_get_axis(input, MatrixAxis(next_next_best_axis)), VectorMix(next_best_axis)));
+
+			return quat_normalize(quat_unaligned_load(&quat_values[0]));
+		}
+	}
+
 	// Multiplication order is as follow: local_to_world = matrix_mul(local_to_object, object_to_world)
 	inline AffineMatrix_32 matrix_mul(const AffineMatrix_32& lhs, const AffineMatrix_32& rhs)
 	{
-		// Affine matrices have their last column always equal to [0, 0, 0, 1]
 		Vector4_32 tmp = vector_mul(vector_mix_xxxx(lhs.x_axis), rhs.x_axis);
 		tmp = vector_mul_add(vector_mix_yyyy(lhs.x_axis), rhs.y_axis, tmp);
 		tmp = vector_mul_add(vector_mix_zzzz(lhs.x_axis), rhs.z_axis, tmp);
@@ -137,7 +237,6 @@ namespace acl
 
 	inline Vector4_32 matrix_mul_position(const AffineMatrix_32& lhs, const Vector4_32& rhs)
 	{
-		// Affine matrices have their last column always equal to [0, 0, 0, 1]
 		Vector4_32 tmp0;
 		Vector4_32 tmp1;
 
@@ -148,26 +247,29 @@ namespace acl
 		return vector_add(tmp0, tmp1);
 	}
 
-	inline AffineMatrix_32 matrix_transpose(const AffineMatrix_32& input)
+	namespace math_impl
 	{
-		// TODO: Add unit tests for this!
-		Vector4_32 tmp0 = vector_mix_xyab(input.x_axis, input.y_axis);
-		Vector4_32 tmp1 = vector_mix_zwcd(input.x_axis, input.y_axis);
-		Vector4_32 tmp2 = vector_mix_xyab(input.z_axis, input.w_axis);
-		Vector4_32 tmp3 = vector_mix_zwcd(input.z_axis, input.w_axis);
+		// Note: This is a generic matrix 4x4 transpose, the resulting matrix is no longer
+		// affine because the last column is no longer [0,0,0,1]
+		inline AffineMatrix_32 matrix_transpose(const AffineMatrix_32& input)
+		{
+			Vector4_32 tmp0 = vector_mix_xyab(input.x_axis, input.y_axis);
+			Vector4_32 tmp1 = vector_mix_zwcd(input.x_axis, input.y_axis);
+			Vector4_32 tmp2 = vector_mix_xyab(input.z_axis, input.w_axis);
+			Vector4_32 tmp3 = vector_mix_zwcd(input.z_axis, input.w_axis);
 
-		Vector4_32 x_axis = vector_mix_xzac(tmp0, tmp2);
-		Vector4_32 y_axis = vector_mix_ywbd(tmp0, tmp2);
-		Vector4_32 z_axis = vector_mix_xzac(tmp1, tmp3);
-		Vector4_32 w_axis = vector_mix_ywbd(tmp1, tmp3);
-		return matrix_set(x_axis, y_axis, z_axis, w_axis);
+			Vector4_32 x_axis = vector_mix_xzac(tmp0, tmp2);
+			Vector4_32 y_axis = vector_mix_ywbd(tmp0, tmp2);
+			Vector4_32 z_axis = vector_mix_xzac(tmp1, tmp3);
+			Vector4_32 w_axis = vector_mix_ywbd(tmp1, tmp3);
+			return AffineMatrix_32{ x_axis, y_axis, z_axis, w_axis };
+		}
 	}
 
 	inline AffineMatrix_32 matrix_inverse(const AffineMatrix_32& input)
 	{
-		// TODO: Add unit tests for this!
 		// TODO: This is a generic matrix inverse function, implement the affine version?
-		AffineMatrix_32 input_transposed = matrix_transpose(input);
+		AffineMatrix_32 input_transposed = math_impl::matrix_transpose(input);
 
 		Vector4_32 v00 = vector_mix_xxyy(input_transposed.z_axis);
 		Vector4_32 v01 = vector_mix_xxyy(input_transposed.x_axis);
@@ -237,10 +339,10 @@ namespace acl
 		Vector4_32 c7 = vector_mul_add(v03, v13, c6);
 		c6 = vector_neg_mul_sub(v03, v13, c6);
 
-		Vector4_32 x_axis = vector_mix_xbxb(c0, c1);
-		Vector4_32 y_axis = vector_mix_xbxb(c2, c3);
-		Vector4_32 z_axis = vector_mix_xbxb(c4, c5);
-		Vector4_32 w_axis = vector_mix_xbxb(c6, c7);
+		Vector4_32 x_axis = vector_mix_xbzd(c0, c1);
+		Vector4_32 y_axis = vector_mix_xbzd(c2, c3);
+		Vector4_32 z_axis = vector_mix_xbzd(c4, c5);
+		Vector4_32 w_axis = vector_mix_xbzd(c6, c7);
 
 		float det = vector_dot(x_axis, input_transposed.x_axis);
 		Vector4_32 inv_det = vector_set(reciprocal(det));
@@ -250,5 +352,15 @@ namespace acl
 		z_axis = vector_mul(z_axis, inv_det);
 		w_axis = vector_mul(w_axis, inv_det);
 		return matrix_set(x_axis, y_axis, z_axis, w_axis);
+	}
+
+	inline AffineMatrix_32 matrix_remove_scale(const AffineMatrix_32& input)
+	{
+		AffineMatrix_32 result;
+		result.x_axis = vector_normalize3(input.x_axis);
+		result.y_axis = vector_normalize3(input.y_axis);
+		result.z_axis = vector_normalize3(input.z_axis);
+		result.w_axis = input.w_axis;
+		return result;
 	}
 }

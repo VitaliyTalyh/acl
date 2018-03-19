@@ -24,7 +24,8 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include <stdint.h>
+#include <cstdint>
+#include <cstring>
 
 namespace acl
 {
@@ -92,31 +93,28 @@ namespace acl
 	//////////////////////////////////////////////////////////////////////////
 
 	// Bit rate 0 is reserved for tracks that are constant in a segment
-	constexpr uint8_t BIT_RATE_NUM_BITS[] = { 0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 32 };
+	constexpr uint8_t k_bit_rate_num_bits[] = { 0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 32 };
 
-	constexpr uint8_t INVALID_BIT_RATE = 0xFF;
-	constexpr uint8_t LOWEST_BIT_RATE = 1;
-	constexpr uint8_t HIGHEST_BIT_RATE = sizeof(BIT_RATE_NUM_BITS) - 1;
-	constexpr uint8_t NUM_BIT_RATES = sizeof(BIT_RATE_NUM_BITS);
+	constexpr uint8_t k_invalid_bit_rate = 0xFF;
+	constexpr uint8_t k_lowest_bit_rate = 1;
+	constexpr uint8_t k_highest_bit_rate = sizeof(k_bit_rate_num_bits) - 1;
+	constexpr uint8_t k_num_bit_rates = sizeof(k_bit_rate_num_bits);
 
-	static_assert(NUM_BIT_RATES == 19, "Expecting 19 bit rates");
+	static_assert(k_num_bit_rates == 19, "Expecting 19 bit rates");
 
 	// If all tracks are variable, no need for any extra padding except at the very end of the data
 	// If our tracks are mixed variable/not variable, we need to add some padding to ensure alignment
-	constexpr uint8_t MIXED_PACKING_ALIGNMENT_NUM_BITS = 16;
+	constexpr uint8_t k_mixed_packing_alignment_num_bits = 16;
 
 	inline uint8_t get_num_bits_at_bit_rate(uint8_t bit_rate)
 	{
-		ACL_ENSURE(bit_rate <= HIGHEST_BIT_RATE, "Invalid bit rate: %u", bit_rate);
-		return BIT_RATE_NUM_BITS[bit_rate];
+		ACL_ENSURE(bit_rate <= k_highest_bit_rate, "Invalid bit rate: %u", bit_rate);
+		return k_bit_rate_num_bits[bit_rate];
 	}
 
 	// Track is constant, our constant sample is stored in the range information
-	constexpr bool is_pack_0_bit_rate(uint8_t bit_rate) { return bit_rate == 0; }
-	// Pack 72 really isn't great, it barely improves the error of most clips with high error
-	// Disabled for now but code left in to test
-	constexpr bool is_pack_72_bit_rate(uint8_t bit_rate) { return false; }
-	constexpr bool is_pack_96_bit_rate(uint8_t bit_rate) { return bit_rate == HIGHEST_BIT_RATE; }
+	constexpr bool is_constant_bit_rate(uint8_t bit_rate) { return bit_rate == 0; }
+	constexpr bool is_raw_bit_rate(uint8_t bit_rate) { return bit_rate == k_highest_bit_rate; }
 
 	struct BoneBitRate
 	{
@@ -141,6 +139,46 @@ namespace acl
 		}
 	}
 
+	inline bool get_rotation_format(const char* format, RotationFormat8& out_format)
+	{
+		const char* quat_128_format = "Quat_128";
+		if (std::strncmp(format, quat_128_format, std::strlen(quat_128_format)) == 0)
+		{
+			out_format = RotationFormat8::Quat_128;
+			return true;
+		}
+
+		const char* quatdropw_96_format = "QuatDropW_96";
+		if (std::strncmp(format, quatdropw_96_format, std::strlen(quatdropw_96_format)) == 0)
+		{
+			out_format = RotationFormat8::QuatDropW_96;
+			return true;
+		}
+
+		const char* quatdropw_48_format = "QuatDropW_48";
+		if (std::strncmp(format, quatdropw_48_format, std::strlen(quatdropw_48_format)) == 0)
+		{
+			out_format = RotationFormat8::QuatDropW_48;
+			return true;
+		}
+
+		const char* quatdropw_32_format = "QuatDropW_32";
+		if (std::strncmp(format, quatdropw_32_format, std::strlen(quatdropw_32_format)) == 0)
+		{
+			out_format = RotationFormat8::QuatDropW_32;
+			return true;
+		}
+
+		const char* quatdropw_variable_format = "QuatDropW_Variable";
+		if (std::strncmp(format, quatdropw_variable_format, std::strlen(quatdropw_variable_format)) == 0)
+		{
+			out_format = RotationFormat8::QuatDropW_Variable;
+			return true;
+		}
+
+		return false;
+	}
+
 	// TODO: constexpr
 	inline const char* get_vector_format_name(VectorFormat8 format)
 	{
@@ -152,6 +190,39 @@ namespace acl
 		case VectorFormat8::Vector3_Variable:	return "Vector3 Variable";
 		default:								return "<Invalid>";
 		}
+	}
+
+	inline bool get_vector_format(const char* format, VectorFormat8& out_format)
+	{
+		const char* vector3_96_format = "Vector3_96";
+		if (std::strncmp(format, vector3_96_format, std::strlen(vector3_96_format)) == 0)
+		{
+			out_format = VectorFormat8::Vector3_96;
+			return true;
+		}
+
+		const char* vector3_48_format = "Vector3_48";
+		if (std::strncmp(format, vector3_48_format, std::strlen(vector3_48_format)) == 0)
+		{
+			out_format = VectorFormat8::Vector3_48;
+			return true;
+		}
+
+		const char* vector3_32_format = "Vector3_32";
+		if (std::strncmp(format, vector3_32_format, std::strlen(vector3_32_format)) == 0)
+		{
+			out_format = VectorFormat8::Vector3_32;
+			return true;
+		}
+
+		const char* vector3_variable_format = "Vector3_Variable";
+		if (std::strncmp(format, vector3_variable_format, std::strlen(vector3_variable_format)) == 0)
+		{
+			out_format = VectorFormat8::Vector3_Variable;
+			return true;
+		}
+
+		return false;
 	}
 
 	// TODO: constexpr

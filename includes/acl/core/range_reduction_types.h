@@ -26,14 +26,14 @@
 
 #include "acl/core/enum_utils.h"
 
-#include <stdint.h>
-
-#define ACL_PER_SEGMENT_RANGE_REDUCTION_COMPONENT_BIT_SIZE	8
-//#define ACL_PER_SEGMENT_RANGE_REDUCTION_COMPONENT_BIT_SIZE	16
-#define ACL_PER_SEGMENT_RANGE_REDUCTION_COMPONENT_BYTE_SIZE (ACL_PER_SEGMENT_RANGE_REDUCTION_COMPONENT_BIT_SIZE / 8)
+#include <cstdint>
 
 namespace acl
 {
+	constexpr uint8_t k_segment_range_reduction_num_bits_per_component = 8;
+	constexpr uint8_t k_segment_range_reduction_num_bytes_per_component = 1;
+	constexpr uint32_t k_clip_range_reduction_vector3_range_size = sizeof(float) * 6;
+
 	// BE CAREFUL WHEN CHANGING VALUES IN THIS ENUM
 	// The range reduction strategy is serialized in the compressed data, if you change a value
 	// the compressed clips will be invalid. If you do, bump the appropriate algorithm versions.

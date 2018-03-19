@@ -45,7 +45,7 @@ namespace acl
 	class AnimationClip
 	{
 	public:
-		AnimationClip(Allocator& allocator, const RigidSkeleton& skeleton, uint32_t num_samples, uint32_t sample_rate, const String &name, float error_threshold)
+		AnimationClip(IAllocator& allocator, const RigidSkeleton& skeleton, uint32_t num_samples, uint32_t sample_rate, const String &name, float error_threshold)
 			: m_allocator(allocator)
 			, m_bones()
 			, m_error_threshold(error_threshold)
@@ -94,9 +94,8 @@ namespace acl
 
 		void sample_pose(float sample_time, Transform_32* out_local_pose, uint16_t num_transforms) const
 		{
-			uint16_t num_bones = get_num_bones();
-			ACL_ENSURE(num_bones > 0, "Invalid number of bones: %u", num_bones);
-			ACL_ENSURE(num_bones == num_transforms, "Number of transforms does not match the number of bones: %u != %u", num_transforms, num_bones);
+			ACL_ENSURE(m_num_bones > 0, "Invalid number of bones: %u", m_num_bones);
+			ACL_ENSURE(m_num_bones == num_transforms, "Number of transforms does not match the number of bones: %u != %u", num_transforms, m_num_bones);
 
 			float clip_duration = get_duration();
 
@@ -105,7 +104,7 @@ namespace acl
 			float interpolation_alpha;
 			calculate_interpolation_keys(m_num_samples, clip_duration, sample_time, sample_frame0, sample_frame1, interpolation_alpha);
 
-			for (uint16_t bone_index = 0; bone_index < num_bones; ++bone_index)
+			for (uint16_t bone_index = 0; bone_index < m_num_bones; ++bone_index)
 			{
 				const AnimatedBone& bone = m_bones[bone_index];
 
@@ -135,7 +134,7 @@ namespace acl
 		}
 
 	private:
-		Allocator&				m_allocator;
+		IAllocator&				m_allocator;
 
 		AnimatedBone*			m_bones;
 

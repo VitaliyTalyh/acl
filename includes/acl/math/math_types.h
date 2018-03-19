@@ -133,6 +133,14 @@ namespace acl
 		Vector4_32	w_axis;
 	};
 
+	struct AffineMatrix_64
+	{
+		Vector4_64	x_axis;
+		Vector4_64	y_axis;
+		Vector4_64	z_axis;
+		Vector4_64	w_axis;
+	};
+
 	enum class VectorMix
 	{
 		X = 0,
@@ -144,6 +152,14 @@ namespace acl
 		B = 5,
 		C = 6,
 		D = 7,
+	};
+
+	enum class MatrixAxis
+	{
+		X = 0,
+		Y = 1,
+		Z = 2,
+		W = 3,
 	};
 
 	// The result is sometimes required as part of an immediate for an intrinsic

@@ -24,7 +24,7 @@
 // SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "acl/core/memory.h"
+#include "acl/core/iallocator.h"
 #include "acl/core/error.h"
 #include "acl/compression/animation_clip.h"
 #include "acl/compression/stream/segment_context.h"
@@ -44,11 +44,15 @@ namespace acl
 		uint32_t sample_rate;
 
 		float error_threshold;
+		float duration;
 
 		bool are_rotations_normalized;
 		bool are_translations_normalized;
 		bool are_scales_normalized;
 		bool has_scale;
+
+		// Stat tracking
+		uint32_t total_header_size;
 
 		//////////////////////////////////////////////////////////////////////////
 
@@ -66,7 +70,7 @@ namespace acl
 		constexpr SegmentIterator segment_iterator() const { return SegmentIterator(segments, num_segments); }
 	};
 
-	inline void initialize_clip_context(Allocator& allocator, const AnimationClip& clip, const RigidSkeleton& skeleton, ClipContext& out_clip_context)
+	inline void initialize_clip_context(IAllocator& allocator, const AnimationClip& clip, const RigidSkeleton& skeleton, ClipContext& out_clip_context)
 	{
 		uint16_t num_bones = clip.get_num_bones();
 		uint32_t num_samples = clip.get_num_samples();
@@ -84,6 +88,7 @@ namespace acl
 		out_clip_context.num_samples = num_samples;
 		out_clip_context.sample_rate = sample_rate;
 		out_clip_context.error_threshold = clip.get_error_threshold();
+		out_clip_context.duration = clip.get_duration();
 		out_clip_context.are_rotations_normalized = false;
 		out_clip_context.are_translations_normalized = false;
 		out_clip_context.are_scales_normalized = false;
@@ -131,6 +136,7 @@ namespace acl
 		}
 
 		out_clip_context.has_scale = has_scale;
+		out_clip_context.total_header_size = 0;
 
 		segment.bone_streams = bone_streams;
 		segment.clip = &out_clip_context;
@@ -138,21 +144,24 @@ namespace acl
 		segment.num_samples = safe_static_cast<uint16_t>(num_samples);
 		segment.num_bones = num_bones;
 		segment.clip_sample_offset = 0;
-		segment.animated_pose_bit_size = 0;
-		segment.animated_data_size = 0;
-		segment.range_data_size = 0;
 		segment.segment_index = 0;
 		segment.are_rotations_normalized = false;
 		segment.are_translations_normalized = false;
 		segment.are_scales_normalized = false;
+
+		segment.animated_pose_bit_size = 0;
+		segment.animated_data_size = 0;
+		segment.range_data_size = 0;
+		segment.total_header_size = 0;
 	}
 
-	inline void destroy_clip_context(Allocator& allocator, ClipContext& clip_context)
+	inline void destroy_clip_context(IAllocator& allocator, ClipContext& clip_context)
 	{
 		for (SegmentContext& segment : clip_context.segment_iterator())
-			deallocate_type_array(allocator, segment.bone_streams, segment.num_bones);
+			destroy_segment_context(allocator, segment);
 
 		deallocate_type_array(allocator, clip_context.segments, clip_context.num_segments);
+		deallocate_type_array(allocator, clip_context.ranges, clip_context.num_bones);
 	}
 
 	constexpr bool segment_context_has_scale(const SegmentContext& segment) { return segment.clip->has_scale; }

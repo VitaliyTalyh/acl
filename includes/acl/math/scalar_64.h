@@ -32,11 +32,16 @@
 namespace acl
 {
 	// TODO: Get a higher precision number
-	constexpr double ACL_PI_64 = 3.141592654;
+	constexpr double k_pi_64 = 3.141592654;
 
 	inline double floor(double input)
 	{
 		return std::floor(input);
+	}
+
+	inline double ceil(double input)
+	{
+		return std::ceil(input);
 	}
 
 	inline double clamp(double input, double min, double max)
@@ -58,6 +63,11 @@ namespace acl
 	{
 		// TODO: Use recip instruction
 		return 1.0 / sqrt(input);
+	}
+
+	inline double reciprocal(double input)
+	{
+		return 1.0 / input;
 	}
 
 	inline double sin(double angle)
@@ -98,7 +108,7 @@ namespace acl
 
 	constexpr double deg2rad(double deg)
 	{
-		return (deg / 180.0) * ACL_PI_64;
+		return (deg / 180.0) * k_pi_64;
 	}
 
 	inline bool scalar_near_equal(double lhs, double rhs, double threshold)
@@ -106,18 +116,26 @@ namespace acl
 		return abs(lhs - rhs) < threshold;
 	}
 
-	inline double is_finite(double input)
+	inline bool is_finite(double input)
 	{
 		return std::isfinite(input);
 	}
 
 	inline double symmetric_round(double input)
 	{
-		return floor(input >= 0.0 ? (input + 0.5) : (input - 0.5));
+		return input >= 0.0 ? floor(input + 0.5) : ceil(input - 0.5);
 	}
 
 	inline double fraction(double value)
 	{
 		return value - floor(value);
+	}
+
+	template<typename SrcIntegralType>
+	inline double safe_to_double(SrcIntegralType input)
+	{
+		double input_f = double(input);
+		ACL_ENSURE(SrcIntegralType(input_f) == input, "Convertion to double would result in truncation");
+		return input_f;
 	}
 }
